@@ -1,0 +1,133 @@
+/*   1:    */ package dragon.onlinedb;
+/*   2:    */ 
+/*   3:    */ import dragon.util.FileUtil;
+/*   4:    */ import java.io.File;
+/*   5:    */ 
+/*   6:    */ public class SimpleCollectionReader
+/*   7:    */   implements CollectionReader
+/*   8:    */ {
+/*   9:    */   private File[] arrFile;
+/*  10:    */   private int curPos;
+/*  11:    */   private ArticleParser parser;
+/*  12:    */   private String root;
+/*  13:    */   
+/*  14:    */   public SimpleCollectionReader(String folder)
+/*  15:    */   {
+/*  16: 22 */     this(folder, new SimpleArticleParser());
+/*  17:    */   }
+/*  18:    */   
+/*  19:    */   public SimpleCollectionReader(String folder, ArticleParser parser)
+/*  20:    */   {
+/*  21: 28 */     this.root = folder;
+/*  22: 29 */     File file = new File(folder);
+/*  23: 30 */     if (file.isDirectory()) {
+/*  24: 31 */       this.arrFile = file.listFiles();
+                    
+/*  25:    */     } else {
+/*  26: 33 */       this.arrFile = null;
+/*  27:    */     }
+/*  28: 34 */     this.curPos = 0;
+/*  29: 35 */     this.parser = parser;
+/*  30:    */   }
+/*  31:    */   
+/*  32:    */   public SimpleCollectionReader(ArticleParser parser)
+/*  33:    */   {
+/*  34: 39 */     this.root = null;
+/*  35: 40 */     this.arrFile = null;
+/*  36: 41 */     this.parser = parser;
+/*  37: 42 */     this.curPos = 0;
+/*  38:    */   }
+/*  39:    */   
+/*  40:    */   public boolean loadCollection(String collectionPath)
+/*  41:    */   {
+/*  42: 48 */     this.root = collectionPath;
+/*  43: 49 */     File file = new File(collectionPath);
+/*  44: 50 */     if (file.isDirectory())
+/*  45:    */     {
+/*  46: 51 */       this.arrFile = file.listFiles();
+/*  47: 52 */       if (this.parser == null) {
+/*  48: 53 */         this.parser = new SimpleArticleParser();
+/*  49:    */       }
+/*  50:    */     }
+/*  51:    */     else
+/*  52:    */     {
+/*  53: 56 */       this.arrFile = null;
+/*  54:    */     }
+/*  55: 58 */     this.curPos = 0;
+/*  56: 59 */     return this.arrFile != null;
+/*  57:    */   }
+/*  58:    */   
+/*  59:    */   public ArticleParser getArticleParser()
+/*  60:    */   {
+/*  61: 63 */     return this.parser;
+/*  62:    */   }
+/*  63:    */   
+/*  64:    */   public void setArticleParser(ArticleParser parser)
+/*  65:    */   {
+/*  66: 67 */     this.parser = parser;
+/*  67:    */   }
+/*  68:    */   
+/*  69:    */   public Article getNextArticle()
+/*  70:    */   {
+/*  71: 73 */     if ((this.parser == null) || (this.arrFile == null)) {
+/*  72: 74 */       return null;
+/*  73:    */     }
+/*  74: 75 */     while (this.curPos < this.arrFile.length)
+/*  75:    */     {
+/*  76: 76 */       if (this.arrFile[this.curPos].isFile())
+/*  77:    */       {
+/*  78: 77 */        // Article article = this.parser.parse(FileUtil.readTextFile(this.arrFile[this.curPos]));
+                      String text = FileUtil.readTextFile(this.arrFile[this.curPos]);
+/*  79: 78 */         int beg = text.indexOf("<TEXT>");
+                      int end = text.indexOf("</TEXT>");
+                      text = text.substring(beg+6, end);
+                      Article article = this.parser.parse(FileUtil.readTextFile(this.arrFile[this.curPos]));
+                      article.setBody(text);
+                      if (article.getKey() == null) {
+/*  80: 79 */           article.setKey(this.arrFile[this.curPos].getName());
+/*  81:    */         }
+/*  82: 80 */         this.curPos += 1;
+/*  83: 81 */         return article;
+/*  84:    */       }
+/*  85: 84 */       this.curPos += 1;
+/*  86:    */     }
+/*  87: 86 */     return null;
+/*  88:    */   }
+/*  89:    */   
+/*  90:    */   public Article getArticleByKey(String key)
+/*  91:    */   {
+/*  92: 93 */     File file = new File(this.root, key);
+/*  93: 94 */     if ((file.exists()) && (file.isFile()))
+/*  94:    */     {
+/*  95: 95 */       Article article = this.parser.parse(FileUtil.readTextFile(file));
+/*  96: 96 */       article.setKey(key);
+/*  97: 97 */       return article;
+/*  98:    */     }
+/*  99:100 */     return null;
+/* 100:    */   }
+/* 101:    */   
+/* 102:    */   public void close()
+/* 103:    */   {
+/* 104:104 */     this.parser = null;
+/* 105:    */   }
+/* 106:    */   
+/* 107:    */   public boolean supportArticleKeyRetrieval()
+/* 108:    */   {
+/* 109:108 */     return true;
+/* 110:    */   }
+/* 111:    */   
+/* 112:    */   public void restart()
+/* 113:    */   {
+/* 114:112 */     this.curPos = 0;
+/* 115:    */   }
+/* 116:    */ }
+
+
+
+/* Location:           C:\Users\betul\Downloads\javalib\dragontool\
+
+ * Qualified Name:     dragon.onlinedb.SimpleCollectionReader
+
+ * JD-Core Version:    0.7.0.1
+
+ */

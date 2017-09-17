@@ -1,0 +1,404 @@
+/*   1:    */ package dragon.ir.summarize;
+/*   2:    */ 
+import static SimilarityKernels.BigramKernel.computeBigramSimilarity;
+import SimilarityKernels.DTBigramKernel;
+import static SimilarityKernels.DTBigramKernel.computeDTBigramSimilarity;
+import SimilarityKernels.DTSimKernel;
+import static SimilarityKernels.DTrigramSimKernel.computeDTrigramSimilarity;
+import static SimilarityKernels.DTrigramSimKernel.createTrigrams;
+import SimilarityKernels.TDTKernel;
+/*   3:    */ import dragon.ir.clustering.docdistance.CosineDocDistance;
+/*   4:    */ import dragon.ir.clustering.docdistance.DocDistance;
+/*   5:    */ 
+/*   6:    */ import dragon.ir.index.IRDoc;
+/*   7:    */ import dragon.ir.index.IndexReader;
+/*   8:    */ import dragon.ir.index.sentence.OnlineSentenceIndexReader;
+/*   9:    */ import dragon.ir.index.sentence.OnlineSentenceIndexer;
+/*  10:    */ import dragon.ir.kngbase.DocRepresentation;
+/*  11:    */ import dragon.matrix.DoubleDenseMatrix;
+/*  12:    */ import dragon.matrix.DoubleFlatDenseMatrix;
+/*  13:    */ import dragon.matrix.vector.DoubleVector;
+/*  14:    */ import dragon.matrix.vector.PowerMethod;
+        
+/*  15:    */ import dragon.onlinedb.CollectionReader;
+import edu.stanford.nlp.ie.AbstractSequenceClassifier;
+import edu.stanford.nlp.ie.crf.CRFClassifier;
+import edu.stanford.nlp.ling.CoreLabel;
+import edu.stanford.nlp.parser.lexparser.LexicalizedParser;
+import edu.stanford.nlp.pipeline.StanfordCoreNLP;
+import edu.stanford.nlp.process.PTBTokenizer;
+import edu.stanford.nlp.process.TokenizerFactory;
+import edu.stanford.nlp.trees.TypedDependency;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.UnsupportedEncodingException;
+import static java.lang.Double.NaN;
+/*  16:    */ import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Properties;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import tree.TreeNode;
+import trigram.TrigramUnit;
+
+
+
+/*  17:    */ 
+/*  18:    */ public class LexRankSummarizer
+/*  19:    */   extends AbstractSentenceSum
+/*  20:    */   implements GenericMultiDocSummarizer
+/*  21:    */ {
+                static double matrix_sum = 0.0;
+                
+/*  22:    */   protected OnlineSentenceIndexReader indexReader;
+/*  23:    */   protected OnlineSentenceIndexer indexer;
+/*  24:    */   protected CollectionReader collectionReader;
+/*  25:    */   protected DocDistance distanceMetric;
+/*  26:    */   protected PowerMethod powerMethod;
+/*  27:    */   protected double threshold;
+/*  28:    */   protected boolean useContinuousValue;
+/*  29:    */   protected boolean useTFIDF;
+/*  30:    */   
+/*  31:    */   public LexRankSummarizer(OnlineSentenceIndexer indexer)
+/*  32:    */   {
+/*  33: 31 */     this(indexer, true);
+/*  34:    */   }
+/*  35:    */   
+/*  36:    */   public LexRankSummarizer(OnlineSentenceIndexer indexer, boolean useTFIDF)
+/*  37:    */   {
+/*  38: 35 */     this.indexer = indexer;
+/*  39: 36 */     this.threshold = 0.1D;
+/*  40: 37 */     this.useContinuousValue = true;
+/*  41: 38 */     this.useTFIDF = useTFIDF;
+/*  42: 39 */     this.powerMethod = new PowerMethod(0.0001D, 0.15D);
+/*  43: 40 */     this.powerMethod.setMessageOption(false);
+/*  44: 41 */     this.powerMethod.setMaxIteration(200);
+/*  45:    */   }
+/*  46:    */   
+/*  47:    */   public void setSimilarityThreshold(double threshold)
+/*  48:    */   {
+/*  49: 45 */     this.threshold = threshold;
+/*  50:    */   }
+/*  51:    */   
+/*  52:    */   public void setContinuousScoreOpiton(boolean option)
+/*  53:    */   {
+/*  54: 49 */     this.useContinuousValue = option;
+/*  55:    */   }
+/*  56:    */   
+/*  57:    */   public String summarize(CollectionReader collectionReader, int maxLength)
+/*  58:    */   {
+                   String summary ="";
+                try/*  58:    */ {
+        /*  59: 57 */     this.collectionReader = collectionReader;
+        /*  60: 58 */     this.indexReader = new OnlineSentenceIndexReader(this.indexer, collectionReader);
+        /*  61: 59 */     this.indexReader.initialize();
+                          
+        /*  62: 60 */     ArrayList sentSet = getSentenceSet(this.indexReader);
+                          
+        DoubleDenseMatrix matrix = buildWeightMatrix(sentSet);
+        /*  63: 61 */     DoubleVector vector = this.powerMethod.getEigenVector(matrix);
+        double nom = 0;
+        double b = vector.getMaxValue();
+        //normalize vector
+        for(int i = 0; i < vector.size(); i++)
+        {
+            nom = ((double) vector.get(i)/ b);
+            vector.set(i,nom );
+        }
+        //String a = this.collectionReader.getArticleByKey("APW19981016.0240");
+        
+        /*  64: 62 */     summary = buildSummary(this.indexReader, this.indexer, sentSet, maxLength, vector, matrix);
+        /*  65: 63 */     
+        /*  68:    */
+    } catch (IOException ex) {
+        Logger.getLogger(LexRankSummarizer.class.getName()).log(Level.SEVERE, null, ex);
+    }
+                finally
+                {
+                    this.indexReader.close();
+        /*  66: 64 */     this.distanceMetric = null;
+        /*  67: 65 */     return summary;
+                }
+   }
+/*  69:    */   
+/*  70:    */   protected DoubleDenseMatrix buildWeightMatrix(ArrayList docSet) 
+/*  71:    */   {
+                    PrintWriter writer = null;
+                    PrintWriter writer2 = null;
+                    PrintWriter dep_writer = null;
+                    PrintWriter tag_writer = null;
+                    
+                    DoubleFlatDenseMatrix matrix = new DoubleFlatDenseMatrix(docSet.size(), docSet.size());
+                    DoubleFlatDenseMatrix matrix_temp = new DoubleFlatDenseMatrix(docSet.size(), docSet.size());
+
+                   // PrintWriter writerSNMF = null;
+                    
+                    int[] cluster_indices = {30001,30002,30003,30005,30006,30007,30008,30010,30011,30015,30017,30020,30022,
+                        30024,30026,30027,30028,30029,30031,30033,30034,30036,30037,30038,30040,30042,30044,30045,30046,30047,
+                        30048,30049,30050,30051,30053,30055,30056,30059,31001,31008,31009,31013,31022,31026,31031,31032,
+                        31033,31038,31043,31050};
+                            
+                    double max = -1.0, min = 1000;
+                    //***deneme
+                    String grammar =  "edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz";
+                    String[] options = { "-maxLength", "100", "-retainTmpSubcategories","-outputFormat", "penn,typedDependencies","-outputFormatOptions", "basicDependencies" };
+                    LexicalizedParser lp = LexicalizedParser.loadModel(grammar, options);
+                    TokenizerFactory tf = PTBTokenizer.factory(true, true);
+                    
+//                    
+////                    Properties props = new Properties(); 
+////          props.put("annotators", "tokenize, ssplit, pos, lemma"); 
+////          StanfordCoreNLP pipeline = new StanfordCoreNLP(props, false);
+            StanfordCoreNLP pipeline = null;
+//   
+            String serializedClassifier = "classifiers/english.all.3class.distsim.crf.ser.gz";
+                    AbstractSequenceClassifier<CoreLabel> classifier = CRFClassifier.getClassifierNoExceptions(serializedClassifier);
+                   // ***deneme end
+                   ArrayList<TreeNode<ArrayList<String>>> trees = new ArrayList<>();
+                    List<List<String>> typedDepList = new ArrayList<>();
+                    ArrayList<ArrayList<String>> bigramList = new ArrayList<>();
+                    
+                    try/*  71:    */ {
+                        
+                        int txt_index = 0;
+
+                        File file;
+                        do{
+                            txt_index++;
+                            file = new File("dep"+txt_index+".txt");                             
+                        }while (file.exists());
+
+                        dep_writer = new PrintWriter("dep"+txt_index+".txt", "UTF-8");
+                        tag_writer = new PrintWriter("tags"+txt_index+".txt", "UTF-8");
+
+                        for (int index = 0; index < docSet.size(); index++)
+    /*  74:    */       {
+                            
+                            String sent = this.indexer.getSentenceBase().get(this.indexReader.getDocKey(index));
+    //                      
+                            
+                            
+                            
+                            
+                            TreeNode<ArrayList<String>> node1 = DTSimKernel.sentenceToDTtree(sent, lp, tf, dep_writer,"dep"+txt_index+".txt",index, classifier, tag_writer, "tags"+txt_index+".txt" );
+                           
+                            trees.add(node1);
+
+                       }
+    /*  72: 74 */
+                        
+                         writer = new PrintWriter("matrix.txt", "UTF-8");
+                         
+                        // int txt_index = 0;
+                         
+                        // File file;
+                         //do{
+                           //  txt_index++;
+                            // file = new File("cos"+txt_index+".txt");                             
+                        // }while (file.exists());
+                         //writerSNMF = new PrintWriter("matrix"+txt_index+".txt","UTF-8");
+                         writer2 = new PrintWriter("cos"+txt_index+".txt", "UTF-8");
+                         writer2.close();
+                         
+                         writer2 = new PrintWriter("cosine"+cluster_indices[txt_index-1]+".txt", "UTF-8");
+                         
+                             
+/*  73: 75 */
+                         for (int i = 0; i < docSet.size(); i++)
+        /*  74:    */    {
+            //System.out.println(i);
+            /*  75: 76 */     matrix.setDouble(i, i, 1.0D);
+                              matrix_temp.setDouble(i, i, 1.0D);
+                              
+            /*  76: 77 */       IRDoc first = (IRDoc)docSet.get(i);
+//            
+//            ArrayList<TrigramUnit> trigramList1 = new ArrayList<>();
+//       
+//        trigramList1 = createTrigrams(trees.get(i), trigramList1);
+        
+            /*  77: 78 */     for (int j = i + 1; j < docSet.size(); j++)
+            /*  78:    */     {
+//                
+//                 ArrayList<TrigramUnit> trigramList2 = new ArrayList<>();
+//                 trigramList2 = createTrigrams(trees.get(j), trigramList2);
+                                      
+                /*  79: 79 */         IRDoc second = (IRDoc)docSet.get(j);
+                //lead based
+               // double similarity = 0;
+                
+                      DocRepresentation docRepresentation = new DocRepresentation(this.indexReader);
+/* 101:106 */         docRepresentation.setMessageOption(false);
+                      
+/* 102:107 */        // this.distanceMetric = new CosineDocDistance(docRepresentation.genTFIDFMatrix());
+
+                      List<String> string_list = new ArrayList<>();
+                      List list = new ArrayList();
+                
+                
+                /*  80: 80 */    //  double similarity = computeSimilarity(first, second);
+                                    // System.out.println(i + " " + j);
+                /*  81: 81 */       //  double similarity = DTSimKernel.computeSimilarityDT(trees.get(i), trees.get(j));
+                                    //  double similarity = DTSimKernel.computeSimilarityDT2(trees.get(i), trees.get(j),docRepresentation.allTermsList.get(i), docRepresentation.allTermsTFIDFList.get(i), docRepresentation.allTermsList.get(j), docRepresentation.allTermsTFIDFList.get(j) );
+                                     // System.out.println("hey " + i + " " + j);
+                                      //double similarity = TDTKernel.computeSimilarity(typedDepList.get(i), typedDepList.get(j));
+                             //  double similarity = computeDTrigramSimilarity(trigramList1, trigramList2);//trees.get(i), trees.get(j));
+                               // double similarity = computeDTBigramSimilarity(trees.get(i), trees.get(j));//, docRepresentation.allTermsList.get(i), docRepresentation.allTermsTFIDFList.get(i), docRepresentation.allTermsList.get(j), docRepresentation.allTermsTFIDFList.get(j));
+                               double similarity = computeBigramSimilarity(trees.get(i), trees.get(j), string_list, list, string_list, list);//docRepresentation.allTermsList.get(i), docRepresentation.allTermsTFIDFList.get(i), docRepresentation.allTermsList.get(j), docRepresentation.allTermsTFIDFList.get(j));
+                                                               
+// double similarity = DTBigramKernel.computeBigramCosineSimilarity(bigramList.get(i), bigramList.get(j));
+                                // System.out.println(similarity);
+                                  //similarity = (similarity + similarity2) / 2.0;
+                                // similarity = similarity/(first.getTermCount()+second.getTermCount());
+                                  
+                                
+                                if(similarity > max)
+                                     max = similarity;
+                                 if(similarity < min)
+                                     min = similarity;
+                
+                                 if (!this.useContinuousValue) {
+                    /*  82: 82 */    if (similarity <= this.threshold) {
+                        /*  83: 83 */     similarity = 0.0D;
+                    /*  84:    */    } 
+                                     else {
+                        /*  85: 85 */     similarity = 1.0D;
+                    /*  86:    */    }
+                /*  87:    */        
+                                 }
+                /*  88: 87 */    matrix.setDouble(i, j, similarity);
+                /*  89: 88 */    matrix.setDouble(j, i, similarity);
+                           
+                               //  matrix_temp.setDouble(i, j, similarity_temp);
+                                // matrix_temp.setDouble(j, i, similarity_temp);
+            /*  90:    */   
+                   
+                            }
+           
+        /*  91:    */     }
+                          
+                          int sum_index = 0;
+                          for (int i = 0; i < docSet.size(); i++)
+        /*  74:    */     {
+                              IRDoc first = (IRDoc)docSet.get(i);
+                              
+                              for (int j = i+1; j < docSet.size(); j++)
+                              {
+                                  sum_index++;
+                                   IRDoc second = (IRDoc)docSet.get(j);
+//                                   if(max == 0.0)
+//                                       System.out.println("hey");
+                                   if((max - min) != 0.0)
+                                   {
+                                       double dummy = (matrix.getDouble(i, j) - min)/ (max - min);
+                                       
+                                       matrix_sum += dummy;
+                    //System.out.println(matrix.getDouble(i, j)+" dummy "+dummy);
+                                      // dummy = (dummy + matrix_temp.getDouble(i, j)) / 2.0D;
+                                       matrix.setDouble(i, j, dummy );
+                                       //dummy = (matrix.getDouble(j, i) - min)/ (max - min);
+                                      
+                                       matrix_sum += dummy;
+                                       //if(matrix_sum == Double.NaN)
+                                        //   System.out.println("i am dummy: "+dummy + " "+ matrix.getDouble(i,j));
+                                      // dummy = (dummy + matrix_temp.getDouble(j, i)) / 2.0D;
+                                       matrix.setDouble(j, i, dummy);
+                 
+                                   }
+                                   writer.print(matrix.getDouble(i, j)+" "+first.getKey().toString()+" "+second.getKey().toString()+" ");
+                                  
+                                   writer.println();
+                                    
+                              }
+                              
+                          }
+                          int i = 0, j = 0;
+                          for(int l = 0; l < docSet.size(); l++)
+                          {
+                              i = 0;
+                              for(int m = 0; m < docSet.size(); m++)
+                              {
+                                 // writerSNMF.print(matrix.getDouble(i, j) + " ");
+                                  if(i<j)
+                                   {
+                                   writer2.println(i+" "+j+" "+matrix.getDouble(l, m));
+                                   writer2.println(j+" "+i+" "+matrix.getDouble(m, l));
+                                   }
+                                   i++;
+                              }
+                             // writerSNMF.print("\n");
+                              j++;
+                             
+                          }
+                         
+                        
+                         // System.out.println(matrix_sum);
+                          matrix_sum = matrix_sum / sum_index;
+                          System.out.println(matrix_sum);
+                         
+                          writer.close();
+                          writer2.close();
+                         // writerSNMF.close();
+/*  92: 91 */
+         
+                          return matrix;
+        /*  93:    */
+    } catch (FileNotFoundException ex) {
+        Logger.getLogger(LexRankSummarizer.class.getName()).log(Level.SEVERE, null, ex);
+    } catch (UnsupportedEncodingException ex) {
+        Logger.getLogger(LexRankSummarizer.class.getName()).log(Level.SEVERE, null, ex);
+    }
+                    finally {
+        writer.close();
+        writer2.close();
+        dep_writer.close();
+        tag_writer.close();
+        return matrix;
+    }
+   }
+/*  94:    */   
+/*  95:    */   protected double computeSimilarity(IRDoc firstSent, IRDoc secondSent)
+/*  96:    */   {
+/*  97:103 */     if (this.distanceMetric == null) {
+/*  98:104 */       if (this.useTFIDF)
+/*  99:    */       {
+/* 100:105 */         DocRepresentation docRepresentation = new DocRepresentation(this.indexReader);
+/* 101:106 */         docRepresentation.setMessageOption(false);
+                      
+/* 102:107 */         this.distanceMetric = new CosineDocDistance(docRepresentation.genTFIDFMatrix());
+                     // System.out.println(DocRepresentation.allTermsList.get(0).toString());
+                     // System.out.println(DocRepresentation.allTermsTFIDFList.get(0).toString());
+                      
+/* 103:    */       }
+/* 104:    */       else
+/* 105:    */       {
+/* 106:110 */         this.distanceMetric = new CosineDocDistance(this.indexReader.getDocTermMatrix());
+/* 107:    */       }
+/* 108:    */     }
+/* 109:112 */     return 1.0D - this.distanceMetric.getDistance(firstSent, secondSent);
+/* 110:    */   }
+/* 111:    */   
+/* 112:    */   protected ArrayList getSentenceSet(IndexReader indexReader)
+/* 113:    */   {
+/* 114:119 */     int docNum = indexReader.getCollection().getDocNum();
+                  
+/* 115:120 */     ArrayList list = new ArrayList(docNum);
+/* 116:121 */     for (int i = 0; i < docNum; i++) {
+/* 117:122 */       list.add(indexReader.getDoc(i));
+                    
+/* 118:    */     }
+/* 119:123 */     return list;
+/* 120:    */   }
+/* 121:    */ }
+
+
+
+/* Location:           C:\Users\betul\Downloads\javalib\dragontool\
+
+ * Qualified Name:     dragon.ir.summarize.LexRankSummarizer
+
+ * JD-Core Version:    0.7.0.1
+
+ */

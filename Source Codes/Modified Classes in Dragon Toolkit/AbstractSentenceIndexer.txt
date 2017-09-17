@@ -1,0 +1,195 @@
+/*   1:    */ package dragon.ir.index.sentence;
+/*   2:    */ 
+/*   3:    */ import dragon.ir.index.Indexer;
+/*   4:    */ import dragon.nlp.Document;
+/*   5:    */ import dragon.nlp.DocumentParser;
+/*   6:    */ import dragon.nlp.Paragraph;
+/*   7:    */ import dragon.nlp.Sentence;
+/*   8:    */ import dragon.onlinedb.Article;
+/*   9:    */ import dragon.util.FileUtil;
+/*  10:    */ import dragon.util.SortedArray;
+/*  11:    */ import java.io.PrintStream;
+/*  12:    */ import java.io.PrintWriter;
+/*  13:    */ import java.util.Date;
+/*  14:    */ 
+/*  15:    */ public abstract class AbstractSentenceIndexer
+/*  16:    */   implements Indexer
+/*  17:    */ {
+/*  18:    */   protected boolean initialized;
+/*  19:    */   protected DocumentParser parser;
+/*  20:    */   private PrintWriter log;
+/*  21:    */   private SortedArray docs;
+/*  22:    */   private int minSentenceLength;
+/*  23:    */   private boolean useTitle;
+/*  24:    */   private boolean useAbstract;
+/*  25:    */   private boolean useBody;
+/*  26:    */   
+/*  27:    */   public AbstractSentenceIndexer(DocumentParser parser)
+/*  28:    */   {
+/*  29: 28 */     this.parser = parser;
+/*  30: 29 */     this.docs = new SortedArray();
+/*  31: 30 */     this.initialized = false;
+/*  32: 31 */     this.useTitle = true;
+/*  33: 32 */     this.useAbstract = true;
+/*  34: 33 */     this.useBody = true;
+/*  35: 34 */     this.initialized = false;
+/*  36: 35 */     this.minSentenceLength = 0;
+/*  37:    */   }
+/*  38:    */   
+/*  39:    */   public abstract boolean index(Sentence paramSentence, String paramString, int sentenceIndex, int numofSentences);
+/*  40:    */   
+/*  41:    */   public void setMinSentenceLength(int minLength)
+/*  42:    */   {
+/*  43: 41 */     if (minLength >= 1) {
+/*  44: 42 */       this.minSentenceLength = minLength;
+/*  45:    */     }
+/*  46:    */   }
+/*  47:    */   
+/*  48:    */   public int getMinSentenceLength()
+/*  49:    */   {
+/*  50: 46 */     return this.minSentenceLength;
+/*  51:    */   }
+/*  52:    */   
+/*  53:    */   public boolean screenArticleContent(boolean useTitle, boolean useAbstract, boolean useBody)
+/*  54:    */   {
+/*  55: 50 */     if (this.initialized) {
+/*  56: 51 */       return false;
+/*  57:    */     }
+/*  58: 52 */     this.useTitle = useTitle;
+/*  59: 53 */     this.useAbstract = useAbstract;
+/*  60: 54 */     this.useBody = useBody;
+/*  61: 55 */     return true;
+/*  62:    */   }
+/*  63:    */   
+/*  64:    */   public void setLog(String logFile)
+/*  65:    */   {
+/*  66: 59 */     this.log = FileUtil.getPrintWriter(logFile);
+/*  67:    */   }
+/*  68:    */   
+/*  69:    */   public boolean indexed(String docKey)
+/*  70:    */   {
+/*  71: 63 */     return this.docs.contains(docKey);
+/*  72:    */   }
+/*  73:    */   
+/*  74:    */   public synchronized boolean index(Article article)
+/*  75:    */   {
+/*  76:    */     try
+/*  77:    */     {
+/*  78: 74 */       if (!this.initialized)
+/*  79:    */       {
+/*  80: 75 */         System.out.println("Please initialize the indexer before indexing!");
+/*  81: 76 */         return false;
+/*  82:    */       }
+/*  83: 78 */       if ((article.getKey() == null) || (this.docs.contains(article.getKey()))) {
+/*  84: 79 */         return false;
+/*  85:    */       }
+/*  86: 80 */       Document doc = getDocument(article);
+/*  87: 81 */       if (doc == null) {
+/*  88: 82 */         return false;
+/*  89:    */       }
+/*  90: 84 */       int index = -1;
+/*  91: 85 */       this.docs.add(article.getKey());
+/*  92: 86 */       Paragraph para = doc.getFirstParagraph();
+/*  93: 87 */       Paragraph para_dummy = doc.getFirstParagraph();
+
+                    int numofSentences = 0;
+                    
+                    while(para_dummy != null)
+                    {
+                        Sentence sent_dummy = para_dummy.getFirstSentence();
+                        
+                        while(sent_dummy != null)
+                        {
+                            //if (sent_dummy.getWordNum() >= this.minSentenceLength)
+                                numofSentences += 1;
+                            sent_dummy = sent_dummy.next;                        
+                        }
+/*  99:    */           para_dummy = para_dummy.next;
+                    }
+
+                    while (para != null)
+/*  94:    */       {
+/*  95: 88 */         Sentence sent = para.getFirstSentence();
+                      
+/*  96: 89 */         while (sent != null)
+/*  97:    */         {
+/*  98: 91 */          // if (sent.getWordNum() >= this.minSentenceLength)
+/*  99:    */           //{
+/* 100: 92 */             index += 1;
+/* 101: 93 */             String sentKey = getSentenceKey(article.getKey(), index);
+/* 102: 94 */             if (index(sent, sentKey, index, numofSentences)) {
+/* 103: 95 */               writeLog(new Date().toString() + " " + sentKey + " successful");
+/* 104:    */             } else {
+/* 105: 97 */               writeLog(new Date().toString() + " " + sentKey + " failed");
+/* 106:    */             }
+                          
+/* 107:    */           //}
+/* 108: 99 */           sent = sent.next;
+                        
+/* 109:    */         }
+/* 110:101 */         para = para.next;
+                      
+/* 111:    */       }
+                    //article.setNumofSentences(numofSentences);
+/* 112:103 */       return true;
+/* 113:    */     }
+/* 114:    */     catch (Exception e)
+/* 115:    */     {
+/* 116:106 */       e.printStackTrace();
+/* 117:    */     }
+/* 118:107 */     return false;
+/* 119:    */   }
+/* 120:    */   
+/* 121:    */   protected Document getDocument(Article article)
+/* 122:    */   {
+/* 123:114 */     if ((article.getKey() == null) || (article.getKey().trim().length() == 0)) {
+/* 124:115 */       return null;
+/* 125:    */     }
+/* 126:117 */     Document doc = new Document();
+/* 127:118 */     if (this.useTitle) {
+/* 128:119 */       doc.addParagraph(this.parser.parseParagraph(article.getTitle()));
+/* 129:    */     }
+/* 130:120 */     if (this.useAbstract) {
+/* 131:121 */       doc.addParagraph(this.parser.parseParagraph(article.getAbstract()));
+/* 132:    */     }
+/* 133:122 */     if ((this.useBody) && (article.getBody() != null)) {
+/* 134:123 */       doc.addParagraph(this.parser.parseParagraph(article.getBody()));
+/* 135:    */     }
+/* 136:124 */     if (doc.getFirstParagraph() != null) {
+/* 137:125 */       return doc;
+/* 138:    */     }
+/* 139:127 */     return null;
+/* 140:    */   }
+/* 141:    */   
+/* 142:    */   protected String getSentenceKey(String docKey, int sentIndex)
+/* 143:    */   {
+/* 144:131 */     return docKey + "_" + sentIndex;
+/* 145:    */   }
+/* 146:    */   
+/* 147:    */   protected void writeLog(String content)
+/* 148:    */   {
+/* 149:135 */     if (this.log != null)
+/* 150:    */     {
+/* 151:136 */       this.log.write(content);
+/* 152:137 */       this.log.flush();
+/* 153:    */     }
+/* 154:    */   }
+/* 155:    */   
+/* 156:    */   public void close()
+/* 157:    */   {
+/* 158:142 */     if (this.log != null) {
+/* 159:143 */       this.log.close();
+/* 160:    */     }
+/* 161:144 */     this.initialized = false;
+/* 162:    */   }
+/* 163:    */ }
+
+
+
+/* Location:           C:\Users\betul\Downloads\javalib\dragontool\
+
+ * Qualified Name:     dragon.ir.index.sentence.AbstractSentenceIndexer
+
+ * JD-Core Version:    0.7.0.1
+
+ */

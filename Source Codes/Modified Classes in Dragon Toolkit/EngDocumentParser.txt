@@ -1,0 +1,429 @@
+/*   1:    */ package dragon.nlp.extract;
+/*   2:    */ 
+/*   3:    */ import dragon.nlp.Document;
+/*   4:    */ import dragon.nlp.DocumentParser;
+/*   5:    */ import dragon.nlp.Paragraph;
+/*   6:    */ import dragon.nlp.Sentence;
+/*   7:    */ import dragon.nlp.Word;
+/*   8:    */ import java.util.ArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+/*   9:    */ 
+/*  10:    */ public class EngDocumentParser
+/*  11:    */   implements DocumentParser
+/*  12:    */ {
+/*  13:    */   public static final String defParaDelimitor = "\n\n";
+/*  14:    */   public static final String defSentDelimitor = ".;?!";
+/*  15:    */   public static final String defWordDelimitor = " \r\n\t_-.;,?/\"'`:(){}!+[]><=%$#*@&^~|\\";
+/*  16:    */   public static final String punctuations = "\r\n\t_-.;,?/\"'`:(){}!+[]><=%$#*@&^~|\\";
+/*  17:    */   protected String wordDelimitor;
+/*  18:    */   protected String paraDelimitor;
+/*  19:    */   protected String sentDelimitor;
+/*  20:    */   
+/*  21:    */   public EngDocumentParser()
+/*  22:    */   {
+/*  23: 23 */     this(null);
+/*  24:    */   }
+/*  25:    */   
+/*  26:    */   public EngDocumentParser(String wordDelimitor)
+/*  27:    */   {
+/*  28: 27 */     this.paraDelimitor = "\n\n";
+/*  29: 28 */     this.sentDelimitor = ".;?!";
+/*  30: 29 */     if (wordDelimitor == null) {
+/*  31: 30 */       this.wordDelimitor = " \r\n\t_-.;,?/\"'`:(){}!+[]><=%$#*@&^~|\\";
+/*  32:    */     } else {
+/*  33: 32 */       this.wordDelimitor = wordDelimitor;
+/*  34:    */     }
+/*  35:    */   }
+/*  36:    */   
+/*  37:    */   public Document parse(String doc)
+/*  38:    */   {
+/*  39: 39 */     if ((doc == null) || (doc.length() == 0)) {
+/*  40: 40 */       return null;
+/*  41:    */     }
+/*  42: 42 */     Document newDoc = new Document();
+/*  43: 43 */     doc = doc.replaceAll("\r\n", "\n");
+/*  44: 44 */     doc = doc.replace('\r', '\n');
+/*  45:    */     try
+/*  46:    */     {
+/*  47: 46 */       int start = 0;
+/*  48: 47 */       while (start < doc.length() - 1)
+/*  49:    */       {
+/*  50: 48 */         int end = doc.indexOf(this.paraDelimitor, start);
+/*  51: 49 */         if (end > 0)
+/*  52:    */         {
+/*  53: 51 */           if (end > start) {
+/*  54: 52 */             newDoc.addParagraph(parseParagraph(doc.substring(start, end)));
+/*  55:    */           }
+/*  56: 53 */           start = end + 2;
+/*  57:    */         }
+/*  58:    */         else
+/*  59:    */         {
+/*  60: 57 */           newDoc.addParagraph(parseParagraph(doc.substring(start)));
+/*  61: 58 */           start = doc.length();
+/*  62:    */         }
+/*  63:    */       }
+/*  64: 61 */       return newDoc;
+/*  65:    */     }
+/*  66:    */     catch (Exception e) {}
+/*  67: 65 */     return null;
+/*  68:    */   }
+/*  69:    */   
+/*  70:    */   public Paragraph parseParagraph(String paragraph)
+/*  71:    */   {
+          
+/*  72: 72 */     int i = 0;int j = 0;int start = 0;
+/*  73: 74 */     if ((paragraph == null) || (paragraph.length() == 0)) {
+/*  74: 75 */       return null;
+/*  75:    */     }
+                  Paragraph newPara = new Paragraph();
+                  
+                  Pattern p = Pattern.compile("<S.*>(.*?)</S>");
+                  Matcher m = p.matcher(paragraph);
+                   while(m.find()){
+                  newPara.addSentence(parseSentence(m.group(1)));
+                  }
+/*  76: 77 */     
+/////*  77: 78 */     if (this.sentDelimitor.indexOf('.') < 0) {
+/////*  78: 79 */       this.sentDelimitor = ("." + this.sentDelimitor);
+/////*  79:    */     }
+/////*  80: 80 */     paragraph = paragraph.replace('\n', ' ');
+/////*  81: 81 */     paragraph = paragraph.trim();
+/////*  82: 82 */     int len = paragraph.length();
+/////*  83: 83 */     if (this.sentDelimitor.indexOf(paragraph.charAt(len - 1)) < 0)
+/////*  84:    */     {
+/////*  85: 85 */       paragraph = paragraph + ".";
+/////*  86: 86 */       len += 1;
+/////*  87:    */     }
+/////*  88: 89 */     while (start < len)
+/////*  89:    */     {
+/////*  90: 91 */       int min = -1;
+/////*  91: 92 */       j = start;
+/////*  92: 93 */       while ((min == -1) && (j < len))
+/////*  93:    */       {
+/////*  94: 96 */         min = paragraph.indexOf('.', j);
+/////*  95: 97 */         if (min >= 0)
+/////*  96:    */         {
+/////*  97: 99 */           j = min + 1;
+/////*  98:100 */           if (!isSentencePeriod(min, paragraph)) {
+/////*  99:101 */             min = -1;
+/////* 100:    */           }
+/////* 101:    */         }
+/////* 102:    */         else
+/////* 103:    */         {
+/////* 104:103 */           j = len;
+/////* 105:    */         }
+/////* 106:    */       }
+/////* 107:106 */       for (i = 0; i < this.sentDelimitor.length(); i++)
+/////* 108:    */       {
+/////* 109:108 */         j = paragraph.indexOf(this.sentDelimitor.charAt(i), start);
+/////* 110:109 */         if ((j >= 0) && (this.sentDelimitor.charAt(i) != '.') && (
+/////* 111:110 */           (min < 0) || (j < min))) {
+/////* 112:110 */           min = j;
+/////* 113:    */         }
+/////* 114:    */       }
+/////* 115:    */       String sent="";
+////                   
+/////* 116:113 */       if (min > 0)
+/////* 117:    */       {
+/////* 118:115 */         sent = paragraph.substring(start, min + 1);
+/////* 119:116 */         newPara.addSentence(parseSentence(sent));
+/////* 120:117 */         start = min + 1;
+/////* 121:    */       }
+/////* 122:    */       else
+/////* 123:    */       {
+/////* 124:120 */         sent = paragraph.substring(start) + ".";
+////                      if(sent.length() > 3)
+/////* 125:121 */             newPara.addSentence(parseSentence(sent));
+/////* 126:122 */         start = len;
+/////* 127:    */       }
+////                    System.out.println(sent);
+/////* 128:    */     }
+/* 129:125 */     return newPara;
+/* 130:    */   }
+/* 131:    */   
+/* 132:    */   public Sentence parseSentence(String sentence)
+/* 133:    */   {
+/* 134:134 */     if ((sentence == null) || (sentence.length() == 0)) {
+/* 135:134 */       return null;
+/* 136:    */     }
+/* 137:136 */     int flag = 0;
+/* 138:137 */     int start = 0;
+/* 139:138 */     Sentence newSent = new Sentence();
+/* 140:139 */     boolean checkPeriod = this.wordDelimitor.indexOf('.') < 0;
+/* 141:140 */     boolean checkApostrophes = this.wordDelimitor.indexOf('\'') < 0;
+/* 142:141 */     sentence = sentence.trim();
+/* 143:142 */     int len = sentence.length();
+/* 144:143 */     if (len <= 0) {
+/* 145:143 */       return null;
+/* 146:    */     }
+/* 147:144 */     if (this.sentDelimitor.indexOf(sentence.charAt(len - 1)) >= 0)
+/* 148:    */     {
+/* 149:145 */       newSent.setPunctuation(sentence.charAt(len - 1));
+/* 150:    */     }
+/* 151:    */     else
+/* 152:    */     {
+/* 153:147 */       sentence = sentence + ".";
+/* 154:148 */       newSent.setPunctuation('.');
+/* 155:149 */       len += 1;
+/* 156:    */     }
+/* 157:152 */     for (int i = 0; i < len - 1; i++)
+/* 158:    */     {
+/* 159:159 */       char ch = sentence.charAt(i);
+/* 160:160 */       if ((checkPeriod) && (ch == '.'))
+/* 161:    */       {
+/* 162:162 */         if (!isPeriodAsWord(i, start, sentence))
+/* 163:    */         {
+/* 164:163 */           if (flag >= 2) {
+/* 165:164 */             newSent.addWord(parseWord(sentence.substring(start, i)));
+/* 166:    */           }
+/* 167:165 */           flag = 2;
+/* 168:166 */           start = i;
+/* 169:167 */           continue;
+/* 170:    */         }
+/* 171:    */       }
+/* 172:170 */       else if ((checkApostrophes) && (ch == '\''))
+/* 173:    */       {
+/* 174:172 */         int ret = isApostrophesAsWord(i, start, sentence);
+/* 175:173 */         if (ret < 2)
+/* 176:    */         {
+/* 177:174 */           if (flag >= 2) {
+/* 178:175 */             newSent.addWord(parseWord(sentence.substring(start, i)));
+/* 179:    */           }
+/* 180:176 */           flag = 2;
+/* 181:177 */           start = i;
+/* 182:178 */           continue;
+/* 183:    */         }
+/* 184:    */       }
+/* 185:182 */       if (ch == ' ')
+/* 186:    */       {
+/* 187:184 */         if (flag >= 2) {
+/* 188:186 */           newSent.addWord(parseWord(sentence.substring(start, i)));
+/* 189:    */         }
+/* 190:188 */         flag = 1;
+/* 191:    */       }
+/* 192:190 */       else if (this.wordDelimitor.indexOf(ch) >= 0)
+/* 193:    */       {
+/* 194:192 */         if (flag >= 2) {
+/* 195:194 */           newSent.addWord(parseWord(sentence.substring(start, i)));
+/* 196:    */         }
+/* 197:196 */         start = i;
+/* 198:197 */         flag = 2;
+/* 199:    */       }
+/* 200:    */       else
+/* 201:    */       {
+/* 202:202 */         if (flag == 2)
+/* 203:    */         {
+/* 204:204 */           newSent.addWord(parseWord(sentence.substring(start, i)));
+/* 205:205 */           start = i;
+/* 206:    */         }
+/* 207:207 */         else if ((flag == 1) || (flag == 0))
+/* 208:    */         {
+/* 209:208 */           start = i;
+/* 210:    */         }
+/* 211:209 */         flag = 3;
+/* 212:    */       }
+/* 213:    */     }
+/* 214:213 */     if ((flag >= 2) && (len - 1 > start)) {
+/* 215:214 */       newSent.addWord(parseWord(sentence.substring(start, len - 1)));
+/* 216:    */     }
+/* 217:215 */     return newSent;
+/* 218:    */   }
+/* 219:    */   
+/* 220:    */   protected Word parseWord(String content)
+/* 221:    */   {
+/* 222:221 */     Word cur = new Word(content);
+/* 223:222 */     if (isNumber(content)) {
+/* 224:223 */       cur.setType(2);
+/* 225:224 */     } else if ((content.length() == 1) && ("\r\n\t_-.;,?/\"'`:(){}!+[]><=%$#*@&^~|\\".indexOf(content) >= 0)) {
+/* 226:225 */       cur.setType(4);
+/* 227:    */     }
+/* 228:226 */     return cur;
+/* 229:    */   }
+/* 230:    */   
+/* 231:    */   public ArrayList parseTokens(String content)
+/* 232:    */   {
+/* 233:235 */     if (content == null) {
+/* 234:236 */       return null;
+/* 235:    */     }
+/* 236:237 */     if ((content = content.trim()).length() == 0) {
+/* 237:238 */       return null;
+/* 238:    */     }
+/* 239:239 */     int len = content.length();
+/* 240:240 */     int flag = 0;
+/* 241:241 */     int start = 0;
+/* 242:242 */     ArrayList tokenList = new ArrayList();
+/* 243:243 */     boolean checkPeriod = this.wordDelimitor.indexOf('.') < 0;
+/* 244:244 */     boolean checkApostrophes = this.wordDelimitor.indexOf('\'') < 0;
+/* 245:246 */     for (int i = 0; i < len; i++)
+/* 246:    */     {
+/* 247:251 */       char ch = content.charAt(i);
+/* 248:252 */       if ((checkPeriod) && (ch == '.'))
+/* 249:    */       {
+/* 250:254 */         if (!isPeriodAsToken(i, start, content))
+/* 251:    */         {
+/* 252:255 */           if (flag >= 2) {
+/* 253:256 */             tokenList.add(content.substring(start, i));
+/* 254:    */           }
+/* 255:257 */           flag = 1;
+/* 256:258 */           continue;
+/* 257:    */         }
+/* 258:    */       }
+/* 259:261 */       else if ((checkApostrophes) && (ch == '\''))
+/* 260:    */       {
+/* 261:263 */         int ret = isApostrophesAsWord(i, start, content);
+/* 262:264 */         if (ret < 2)
+/* 263:    */         {
+/* 264:265 */           if (flag >= 2) {
+/* 265:266 */             tokenList.add(content.substring(start, i));
+/* 266:    */           }
+/* 267:267 */           flag = 1;
+/* 268:268 */           continue;
+/* 269:    */         }
+/* 270:    */       }
+/* 271:272 */       if (this.wordDelimitor.indexOf(ch) >= 0)
+/* 272:    */       {
+/* 273:274 */         if (flag >= 2) {
+/* 274:275 */           tokenList.add(content.substring(start, i));
+/* 275:    */         }
+/* 276:276 */         flag = 1;
+/* 277:    */       }
+/* 278:280 */       else if ((flag == 1) || (flag == 0))
+/* 279:    */       {
+/* 280:281 */         start = i;
+/* 281:282 */         flag = 2;
+/* 282:    */       }
+/* 283:    */     }
+/* 284:286 */     if (flag >= 2) {
+/* 285:287 */       tokenList.add(content.substring(start, len));
+/* 286:    */     }
+/* 287:288 */     return tokenList;
+/* 288:    */   }
+/* 289:    */   
+/* 290:    */   protected boolean isPeriodAsWord(int periodPos, int startPos, String context)
+/* 291:    */   {
+/* 292:295 */     int len = context.length();
+/* 293:296 */     if ((periodPos == startPos) || (!Character.isLetter(context.charAt(periodPos - 1))) || (context.charAt(periodPos - 1) > 'ÿ')) {
+/* 294:297 */       return false;
+/* 295:    */     }
+/* 296:299 */     if ((periodPos - 2 > 0) && (context.charAt(periodPos - 2) == '.')) {
+/* 297:300 */       return true;
+/* 298:    */     }
+/* 299:302 */     if (periodPos == startPos + 1) {
+/* 300:303 */       return true;
+/* 301:    */     }
+/* 302:305 */     if (periodPos - startPos >= 4) {
+/* 303:306 */       return false;
+/* 304:    */     }
+/* 305:308 */     if (periodPos < len - 2)
+/* 306:    */     {
+/* 307:309 */       char ch = context.charAt(periodPos + 1);
+/* 308:310 */       if ((ch == '\r') || (ch == '\n')) {
+/* 309:311 */         return false;
+/* 310:    */       }
+/* 311:    */     }
+/* 312:313 */     else if (periodPos == len - 1)
+/* 313:    */     {
+/* 314:314 */       return false;
+/* 315:    */     }
+/* 316:315 */     return true;
+/* 317:    */   }
+/* 318:    */   
+/* 319:    */   protected boolean isPeriodAsToken(int periodPos, int startPos, String context)
+/* 320:    */   {
+/* 321:320 */     int len = context.length();
+/* 322:322 */     if ((periodPos == startPos) || (!Character.isLetter(context.charAt(periodPos - 1))) || (context.charAt(periodPos - 1) > 'ÿ')) {
+/* 323:323 */       return false;
+/* 324:    */     }
+/* 325:325 */     if ((periodPos > 2) && (context.charAt(periodPos - 2) == '.')) {
+/* 326:326 */       return true;
+/* 327:    */     }
+/* 328:328 */     if (periodPos - startPos >= 4) {
+/* 329:329 */       return false;
+/* 330:    */     }
+/* 331:331 */     if (periodPos < len - 1)
+/* 332:    */     {
+/* 333:332 */       if (!Character.isLetter(context.charAt(periodPos + 1))) {
+/* 334:333 */         return false;
+/* 335:    */       }
+/* 336:    */     }
+/* 337:    */     else {
+/* 338:336 */       return false;
+/* 339:    */     }
+/* 340:337 */     return true;
+/* 341:    */   }
+/* 342:    */   
+/* 343:    */   protected int isApostrophesAsWord(int apoPos, int startPos, String context)
+/* 344:    */   {
+/* 345:343 */     if ((apoPos == 0) || (context.charAt(apoPos - 1) == ' ') || (apoPos == context.length() - 1)) {
+/* 346:344 */       return 0;
+/* 347:    */     }
+/* 348:345 */     char ch = context.charAt(apoPos + 1);
+/* 349:346 */     if ((ch == ' ') || (!Character.isLetter(ch))) {
+/* 350:347 */       return 0;
+/* 351:    */     }
+/* 352:348 */     if ((ch == 's') && (apoPos + 2 < context.length()) && (context.charAt(apoPos + 2) == ' ')) {
+/* 353:349 */       return 1;
+/* 354:    */     }
+/* 355:350 */     return 2;
+/* 356:    */   }
+/* 357:    */   
+/* 358:    */   protected boolean isSentencePeriod(int pos, String context)
+/* 359:    */   {
+/* 360:356 */     if (pos == 0) {
+/* 361:357 */       return false;
+/* 362:    */     }
+/* 363:358 */     if (context.charAt(pos - 1) > 'ÿ') {
+/* 364:359 */       return true;
+/* 365:    */     }
+                 
+/* 366:361 */     int len = context.length();
+                 
+/* 367:362 */     if ((pos < len - 1) && (context.charAt(pos + 1) != ' ') && (context.charAt(pos + 1) != '\"') && (context.charAt(pos + 1) != '\'')) {
+/* 368:363 */       return false;
+/* 369:    */     }
+/* 370:365 */     if ((Character.isUpperCase(context.charAt(pos - 1))) && ((pos == 1) || (Character.isWhitespace(context.charAt(pos - 2))))) {
+/* 371:366 */       return false;
+/* 372:    */     }
+/* 373:368 */     if ((pos - 2 > 0) && (context.charAt(pos - 2) == '.')) {
+/* 374:369 */       return false;
+/* 375:    */     }
+/* 376:370 */     if ((pos < len - 2) && (!isUpper(context.charAt(pos + 2))))
+/* 377:    */     {
+/* 378:372 */       int start = context.lastIndexOf(' ', pos);
+/* 379:373 */       if ((start >= 0) && (pos - start <= 5) && (isUpper(context.charAt(start + 1)))) {
+/* 380:374 */         return false;
+/* 381:    */       }
+/* 382:    */     }
+/* 383:376 */     return true;
+/* 384:    */   }
+/* 385:    */   
+/* 386:    */   private boolean isUpper(char ch)
+/* 387:    */   {
+/* 388:380 */     if ((ch < 'a') || (ch > 'z')) {
+/* 389:381 */       return true;
+/* 390:    */     }
+/* 391:383 */     return false;
+/* 392:    */   }
+/* 393:    */   
+/* 394:    */   protected boolean isNumber(String str)
+/* 395:    */   {
+/* 396:    */     try
+/* 397:    */     {
+/* 398:389 */       Double.parseDouble(str);
+/* 399:390 */       return true;
+/* 400:    */     }
+/* 401:    */     catch (Exception e) {}
+/* 402:393 */     return false;
+/* 403:    */   }
+/* 404:    */ }
+
+
+
+/* Location:           C:\Users\betul\Downloads\javalib\dragontool\
+
+ * Qualified Name:     dragon.nlp.extract.EngDocumentParser
+
+ * JD-Core Version:    0.7.0.1
+
+ */
